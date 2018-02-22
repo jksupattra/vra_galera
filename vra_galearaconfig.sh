@@ -38,22 +38,33 @@ done
 }
 
 
+
 function startGalera ()
 {
-
-  nodeArray=("$@")
-  echo "${nodeArray[@]}"
-
-  if [[ "${NODE}" == "1" ]] {
-     if [ -z `/usr/bin/galera_new_cluster` ]
-     then 
-	sleep 5;
-	echo `systemctl status mariadb | grep -E "Active:.*.running"`
+    nodeArray=("$@")
+    ##echo "${nodeArray[@]}"
+    if [[ "${NODE}" == "1" ]] ; then 
+	echo "${nodeArray[0]} =>> Starting... galera_new_cluster"
+     	if [ -z `/usr/bin/galera_new_cluster` ] ; then 
+	    sleep 5;
+	    result=`systemctl status mariadb | grep -E "Active:.*.running"`
+	    if [ "${result}" ] ; then 
+        	echo "      =>> Start galera_new_cluster completed"
+	    	for (( i=1; i < ${#nodeArray[@]}; i++ ));
+		do
+  	    	    OUTPUT=`sshpass -p password ssh -o StrictHostKeyChecking=no \
+            	    root\@${nodeArray[${i}]}  grep "^wsrep_on=ON" /etc/my.cnf.d/server.cnf`
+		    if [ ${OUTPUT} ]; then  startService ${nodeArray[${i}]} mysql ; fi
+		done	
+	    else 
+                echo "      =>> Start galera_new_cluster failed"
+	        exit 99;
+	    fi
+	fi
      fi
-  }
-  ## complted start node2
-
 }
+
+
 
 function checkService(){
     IPSERV=$1
@@ -85,6 +96,7 @@ function stopService(){
 function startService(){
     IPSERV=$1
     SERVICE=$2
+    echo "${IPSERV} =>> Starting... service $SERVICE"
     `sshpass -p password ssh -o StrictHostKeyChecking=no \
 	root\@${IPSERV} systemctl start $SERVICE`
     sleep 5;
@@ -108,23 +120,27 @@ function dbPrepareUser(){
 }
 
 
-startGalera ${IP_NODES[@]} 
-
-exit 0;
-
-
 ## Task(1): check all node are runing mariadb service ##
 echo "Task(1): check all node are runing mariadb service"
+TRYCHECK=3
 
+i="0";
+while [ "$i" -lt "$TRYCHECK" ]
+do
 NODERUNING=0;
 for  IP in "${IP_NODES[@]}"; do 
      if [ "$(checkService ${IP} mysql)" ]
      then 
-    	echo ">>> ${HOST_NODES[${NODERUNING}]} service running"
+    	echo ">>> ${IP} service running"
         NODERUNING=$((NODERUNING+1));
      else
-    	echo ">>> ${HOST_NODES[${NODERUNING}]} service dead"
+    	echo ">>> ${IP} service dead"
+	#startService ${IP} mysql
      fi
+done
+i=$((i+1));
+echo -e "\n"
+if  [ ${NODERUNING} -eq ${#IP_NODES[@]} ];then break; fi
 done
 
 
@@ -135,11 +151,12 @@ then
     dbPrepareUser ## prepare config database
     `systemctl stop mysql`
 else
-    echo "Error!! some node has problem,service not running"
+    echo "Error!! some node has problem,service not running after install single."
     exit 99;
     
 fi
 
+exit;
 
 ## Action by Node1 deploy config to another node ##
 ## Task(3): config galera on server.cnf ## 
@@ -159,7 +176,6 @@ for  IP in "${IP_NODES[@]}"; do
 done
 
 #3.2) config server.cnf
-
 
 
 cat >   server.cnf <<EOF
