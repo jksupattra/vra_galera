@@ -19,6 +19,41 @@ if [ ${HOST_NODE1} ] ; then HOST_NODES+=(${HOST_NODE1}); fi
 if [ ${HOST_NODE2} ] ; then HOST_NODES+=(${HOST_NODE2}); fi
 if [ ${HOST_NODE3} ] ; then HOST_NODES+=(${HOST_NODE3}); fi
 
+NETDEV0="eth0"
+
+function checkNode ()
+{
+
+NODE=0
+IPNET0=`ifconfig ${NETDEV0}| grep "inet " | awk '{print $2}'`
+echo "${IPNET0}" 
+echo "${IP_NODES[${NODE}]}" 
+
+for  IP in "${IP_NODES[@]}"; do 
+     NODE=$((NODE+1));
+     if [ "${IPNET0}" == "${IP}" ];then
+	break;
+     fi
+done
+}
+
+
+function startGalera ()
+{
+
+  nodeArray=("$@")
+  echo "${nodeArray[@]}"
+
+  if [[ "${NODE}" == "1" ]] {
+     if [ -z `/usr/bin/galera_new_cluster` ]
+     then 
+	sleep 5;
+	echo `systemctl status mariadb | grep -E "Active:.*.running"`
+     fi
+  }
+  ## complted start node2
+
+}
 
 function checkService(){
     IPSERV=$1
@@ -72,6 +107,10 @@ function dbPrepareUser(){
 
 }
 
+
+startGalera ${IP_NODES[@]} 
+
+exit 0;
 
 
 ## Task(1): check all node are runing mariadb service ##
