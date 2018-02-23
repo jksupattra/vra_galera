@@ -10,7 +10,15 @@ HOST_NODE1="mariaha01"
 HOST_NODE2="mariaha02"
 HOST_NODE3="mariaha03"
 
+APPIP_NODE1=""
+APPIP_NODE2=""
+APPIP_NODE3=""
 
+APPHOST_NODE1=""
+APPHOST_NODE2=""
+APPHOST_NODE3=""
+
+###########################################################
 if [ ${IP_NODE1} ] ; then IP_NODES+=(${IP_NODE1}); fi
 if [ ${IP_NODE2} ] ; then IP_NODES+=(${IP_NODE2}); fi
 if [ ${IP_NODE3} ] ; then IP_NODES+=(${IP_NODE3}); fi
@@ -18,6 +26,15 @@ if [ ${IP_NODE3} ] ; then IP_NODES+=(${IP_NODE3}); fi
 if [ ${HOST_NODE1} ] ; then HOST_NODES+=(${HOST_NODE1}); fi
 if [ ${HOST_NODE2} ] ; then HOST_NODES+=(${HOST_NODE2}); fi
 if [ ${HOST_NODE3} ] ; then HOST_NODES+=(${HOST_NODE3}); fi
+###########################################################
+
+
+
+
+
+
+
+
 
 NETDEV0="eth0"
 
