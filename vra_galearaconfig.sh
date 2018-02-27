@@ -30,6 +30,7 @@ if [ ${DBIP_NODE3} ] ; then DBIP_NODES+=(${DBIP_NODE3}); fi
 if [ ${DBHOST_NODE1} ] ; then DBHOST_NODES+=(${DBHOST_NODE1}); fi
 if [ ${DBHOST_NODE2} ] ; then DBHOST_NODES+=(${DBHOST_NODE2}); fi
 if [ ${DBHOST_NODE3} ] ; then DBHOST_NODES+=(${DBHOST_NODE3}); fi
+
 ###########################################################
 
 ##########################
@@ -61,7 +62,6 @@ APP_USER=${PROJCODE}"usr"
 APP_PWD="passsw0rd"
 
 
-
 function checkNode ()
 {
 
@@ -78,10 +78,7 @@ for  IP in "${DBIP_NODES[@]}"; do
 done
 }
 
-checkNode
-echo "$NODE"
-echo "${DBIP_NODES[${NODE}-1]}" 
-exit;
+
 
 function startGalera ()
 {
@@ -102,7 +99,7 @@ function startGalera ()
 		done	
 	    else 
                 echo "      =>> Start galera_new_cluster failed"
-	        exit 99;
+	        #exit 99;
 	    fi
 	fi
      fi
@@ -166,12 +163,10 @@ function dbPrepareUser(){
     ## create app user on DB ##
     for APP_HOSTNAME in "${APPHOST_NODES[@]}"; do 
     	#echo "mysql -e \"GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'\""
-    	mysql -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
+    	mysql  -uroot -pdbausr_123 "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
     done
 }
 
-dbPrepareUser ## prepare config database
-exit;
 ##################################################
 ##		START SCRIPT TASK 		## 
 ##################################################
@@ -205,9 +200,9 @@ then
     echo "Task(2): prepare database to config gelara cluster" 
     dbPrepareUser ## prepare config database
     `systemctl stop mysql`
-else
-    echo "Error!! some node has problem,service not running after install single."
-    exit 99;
+#else
+    #echo "Error!! some node has problem,service not running after install single."
+    #exit 99;
     
 fi
 
@@ -216,26 +211,23 @@ fi
 ## Task(3): config galera on server.cnf ## 
 echo "Task(3): config galera on server.cnf" 
 #3.1) stop mariadb
-for  IP in "${IP_NODES[@]}"; do 
-     if [ "$(checkService ${IP} mysql)" ]
-     then 
-        stopService ${IP} mysql
-     fi
-done
-for  IP in "${IP_NODES[@]}"; do 
-     if [ -z "$(checkService ${IP} mysql)" ]
-     then 
-    	echo ">>> ${HOST_NODES[${NODERUNING}]} service stop"
-     fi
-done
+`systemctl stop mysql`
+sleep 5;
 
 #3.2) config server.cnf
+DBCONF="/etc/my.cnf.d/server.cnf"
+# backup file config
+cp -arx ${DBCONF} ${DBCONF}.single
 
-wsrep_cluster_address="gcomm://192.168.134.161,192.168.134.162,192.168.134.163"
-wsrep_node_address='192.168.134.161'
-wsrep_node_name='mariaha01'
+checkNode
+WSREP_CLUSTER_ADDR=$(IFS=, ; echo "gcomm://${DBIP_NODES[*]}")
+WSREP_NODE_ADDR="${DBIP_NODES[${NODE}-1]}"
+WSREP_NODE_NAME="${DBHOST_NODES[${NODE}-1]}"
+#echo "$WSREP_CLUSTER_ADDR"
+#echo "$WSREP_NODE_ADDR"
+#echo "$WSREP_NODE_NAME"
 
-cat >   server.cnf <<EOF
+cat >   ${DBCONF} <<EOF
 #
 # These groups are read by MariaDB server.
 # Use it for options that only the server (but not clients) should see
@@ -278,10 +270,10 @@ innodb_log_file_size=100M
 innodb_file_per_table=ON
 innodb_flush_log_at_trx_commit=2
 wsrep_provider=/usr/lib64/galera/libgalera_smm.so
-wsrep_cluster_address="gcomm://192.168.134.161,192.168.134.162,192.168.134.163"
+wsrep_cluster_address="$WSREP_CLUSTER_ADDR"
 wsrep_cluster_name='galera_cluster'
-wsrep_node_address='192.168.134.161'
-wsrep_node_name='mariaha01'
+wsrep_node_address='$WSREP_NODE_ADDR'
+wsrep_node_name='$WSREP_NODE_NAME'
 wsrep_sst_method=rsync
 wsrep_sst_auth=sst_user:dbpass
 wsrep_auto_increment_control=1
@@ -337,3 +329,153 @@ innodb_buffer_pool_size=614215680
 innodb_buffer_pool_instances=8
 thread_cache_size=4
 EOF
+
+if  [ ${NODE} != "1" ] ; then echo -e "Waiting for Node1 start cluster ....." ; fi
+
+## Action by Node1 Stop/Start all node ##
+## Task(4): Start galera on Node1 ## 
+echo "Task(4): Start galera cluster " 
+NODERUNING=0;
+## 4.1 check all node db status already stop.
+echo "4.1 check all node db status already stop."
+for  IP in "${DBIP_NODES[@]}"; do 
+     if [ -z "$(checkService ${IP} mysql)" ]
+     then 
+    	echo ">>> ${HOST_NODES[${NODERUNING}]} service stop"
+     fi
+done
+## check all node stop
+## 4.2 start galera on node1 
+echo "4.2 start galera on node1"
+startGalera 
+## 4.3 start db on other node ##
+echo "4.3 start db on other node" 
+i=1
+while [ "$i" -lt "${#DBIP_NODES[@]}" ]
+do
+     IP=${DBIP_NODES[$i]}
+     startService ${IP} mysql
+     if [ "$(checkService ${IP} mysql)" ]
+     then 
+    	echo ">>> ${IP} service running"
+        NODERUNING=$((NODERUNING+1));
+     else
+    	echo ">>> ${IP} service dead"
+	#startService ${IP} mysql
+     fi
+    i=$((i+1))
+done
+
+
+GALERA_SIZE=${#DBIP_NODES[@]}
+LOCAL_NODE="${DBHOST_NODES[${NODE}-1]}"
+CONUSR_PA="test_connect"
+
+echo "GALERA_SIZE=$GALERA_SIZE"
+echo "LOCAL_NODE=$LOCAL_NODE"
+
+
+##Task(5): Check galera sync status 
+echo "Task(5): Check galera connect localnode and sync status"
+
+#### Check MariaDB status (Local Node) ####
+echo "5.1 Check status MariaDB Galera Instance on ${LOCAL_NODE}"
+echo "Expectation: Running"
+
+unset MARIA_STATUS
+MARIA_STATUS=$(/sbin/pidof mysqld || echo "MariaDB not startup")
+export MARIA_STATUS
+
+## Summary MariaDB Parameter on Local Node (via test connection) ##
+PLATFORM_INFOR=$(cat /etc/redhat-release) 
+DB_VERSION=$(mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "status" | grep "Server version" | awk '{print $3 " " $4 " " $5}')
+DB_HOSTNAME=$(mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "select @@hostname" | grep -v "hostname" | awk '{print $1}')
+export PLATFORM_INFOR DB_VERSION DB_HOSTNAME
+##
+echo "DB_HOSTNAME=$DB_HOSTNAME"
+
+echo "5.2 Test MariaDB Galera Connection on Local Node (${LOCAL_NODE})"
+echo "Type: Database Server"
+echo ""
+
+echo "Hostname: ${DB_HOSTNAME}"
+echo "Platform: ${PLATFORM_INFOR}"
+echo ""
+echo "MariaDB Type: MairaDB Galera --${GALERA_SIZE}-- Nodes"
+echo "MariaDB Version: ${DB_VERSION}"
+
+echo ""
+echo "MariaDB Server Parameters:"
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'server_id'" | grep -i "server_id" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'port'" | grep -i "port" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'datadir'" | grep -i "datadir" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'tmpdir'" | grep -i "tmpdir" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'tx_isolation'" | grep -i "tx_isolation" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'character_set_%'" | egrep "server|database" | grep -i "char" | awk '{print "    - " $1 ": " $2}' | sort -r
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'collation_%'" | egrep "server|database" | grep -i "colla" | awk '{print "    - " $1 ": " $2}' | sort -r
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'log%'" | egrep "log_bin|log_error|log_output" | grep -v "log_bin_trust" | grep -i "log" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'binlog_format'" | grep -v "log_bin_trust" | grep -i "log" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'slow_query_log_file'" | grep -v "Value" | grep -i "slow_query_log_file" | awk '{print "    - " $1 ": " $2}'
+echo ""
+
+WSREP_CLS_SIZE=$(mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_cluster_size'" | grep -iv "Value" | awk '{print $2}')
+WSREP_READY=$(mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_ready'" | grep -iv "Value" | awk '{print $2}')
+WSREP_STATE=$(mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_local_state_comment'" | grep -iv "Value" | awk '{print $2}')
+export WSREP_CLS_SIZE WSREP_READY WSREP_STATE
+
+echo "MariaDB Server Galera Parameters:"
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'wsrep_cluster_name'" | grep -v "Value" | grep -i "wsrep_cluster_name" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'wsrep_node_name'" | grep -v "Value" | grep -i "wsrep_node_name" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show variables like 'wsrep_node_address'" | grep -v "Value" | grep -i "wsrep_node_address" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_cluster_size'" | grep -iv "Value" | awk '{print "    - " $1 ": " $2}'
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_ready'" | grep -iv "Value" | awk '{print "    - " $1 ": " $2}' 
+mysql -uconusr -p${CONUSR_PA} -h${LOCAL_NODE} -e "show status like 'wsrep_local_state_comment'" | grep -iv "Value" | awk '{print "    - " $1 ": " $2}'
+echo ""
+echo "Remark: wsrep_cluster_size should be --${GALERA_SIZE}--, wsrep_ready should be --ON--, wsrep_local_state_comment should be --Synced--"
+
+
+### Check MariaDB Connection for Local Node ###
+#if [ "${MARIA_STATUS}" != "MariaDB not startup" ] && [ "${PROCESS_START}" = "yes" ] && [ "${DB_HOSTNAME}" = "${HOSTNAME}" ]
+if [ "${MARIA_STATUS}" != "MariaDB not startup" ] && [ "${DB_HOSTNAME}" = "${HOSTNAME}" ]
+then
+        echo ""
+        echo "*********************************************************************************************"
+        echo "  ==> Test MariaDB Galera Connection (--${LOCAL_NODE}--): Connection COMPLETED !!!           "
+        echo "*********************************************************************************************"
+else
+        echo ""
+        echo "**************************************************************************************************"
+        echo "  ==> Test MariaDB Galera Connection (--${LOCAL_NODE}--): Connection ERROR !!!                    "
+        echo "  ==> Please contact DBA Team to verify again, MariaDB may be start but cannot connect !!!        "
+        echo "**************************************************************************************************"
+
+        exit 99
+fi
+
+### Check MariaDB Connection ans Galera Synchronization ###
+if [ "${DB_HOSTNAME}" = "${HOSTNAME}" ] && [ "${WSREP_READY}" = "ON" ] && [ "${WSREP_CLS_SIZE}" = ${GALERA_SIZE} ] && [ "${WSREP_STATE}" = "Synced" ]
+then
+        echo ""
+        echo "*****************************************************************************"
+        echo "  ==> MariaDB Galera Status (Cluster Synchronization): SYNC COMPLETED !!!    "
+        echo "*****************************************************************************"
+
+
+else
+        echo ""
+        echo "********************************************************************************************"
+        echo "  ==> MariaDB Galera Status (Cluster Synchronization): SYNC ERROR !!!                       "
+        echo "  ==> Please contact DBA TEAM to verify again, MariaDB Galera Status not Synchronous !!!    "
+        echo "********************************************************************************************"
+
+        exit 99
+fi
+
+## Task(6): Shutdown MariaDB instance then start again.
+echo "Task(6): Shutdown MariaDB instance then start again."
+mysql -udbausr -pdbausr_123 -hlocalhost -e "shutdown"
+sleep 5;
+startService ${DBIP_NODES[$NODE-1]} mysql
+checkService ${DBIP_NODES[$NODE-1]} mysql
+
+
