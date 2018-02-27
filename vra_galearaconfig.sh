@@ -18,18 +18,24 @@ DBIP_NODE1="192.168.134.161"
 DBIP_NODE2="192.168.134.162"
 DBIP_NODE3="192.168.134.163"
 
-DBHOST_NODE1="mariaha01"
-DBHOST_NODE2="mariaha02"
-DBHOST_NODE3="mariaha03"
+DBHOST_NODE1="MARIAHA01"
+DBHOST_NODE2="MARIAHA02"
+DBHOST_NODE3="MARIAHA03"
 
 ###########################################################
 if [ ${DBIP_NODE1} ] ; then DBIP_NODES+=(${DBIP_NODE1}); fi
 if [ ${DBIP_NODE2} ] ; then DBIP_NODES+=(${DBIP_NODE2}); fi
 if [ ${DBIP_NODE3} ] ; then DBIP_NODES+=(${DBIP_NODE3}); fi
 
-if [ ${DBHOST_NODE1} ] ; then DBHOST_NODES+=(${DBHOST_NODE1}); fi
-if [ ${DBHOST_NODE2} ] ; then DBHOST_NODES+=(${DBHOST_NODE2}); fi
-if [ ${DBHOST_NODE3} ] ; then DBHOST_NODES+=(${DBHOST_NODE3}); fi
+if [ ${DBHOST_NODE1} ] ; then 
+    DBHOST_NODE1="$(echo $DBHOST_NODE1 | tr '[:upper:]' '[:lower:]')";
+    DBHOST_NODES+=(${DBHOST_NODE1}); fi
+if [ ${DBHOST_NODE2} ] ; then 
+    DBHOST_NODE2="$(echo $DBHOST_NODE2 | tr '[:upper:]' '[:lower:]')";
+    DBHOST_NODES+=(${DBHOST_NODE2}); fi
+if [ ${DBHOST_NODE3} ] ; then 
+    DBHOST_NODE3="$(echo $DBHOST_NODE3 | tr '[:upper:]' '[:lower:]')";
+    DBHOST_NODES+=(${DBHOST_NODE3}); fi
 
 ###########################################################
 
@@ -39,16 +45,22 @@ if [ ${DBHOST_NODE3} ] ; then DBHOST_NODES+=(${DBHOST_NODE3}); fi
 APPIP_NODE1="192.168.134.171"
 APPIP_NODE2="192.168.134.172"
 
-APPHOST_NODE1="jboss01"
-APPHOST_NODE2="jboss02"
+APPHOST_NODE1="JBOSS01"
+APPHOST_NODE2="JBOSS02"
+
 
 ###########################################################
 if [ ${APPIP_NODE1} ] ; then APPIP_NODES+=(${APPIP_NODE1}); fi
 if [ ${APPIP_NODE2} ] ; then APPIP_NODES+=(${APPIP_NODE2}); fi
 
-if [ ${APPHOST_NODE1} ] ; then APPHOST_NODES+=(${APPHOST_NODE1}); fi
-if [ ${APPHOST_NODE2} ] ; then APPHOST_NODES+=(${APPHOST_NODE2}); fi
+if [ ${APPHOST_NODE1} ] ; then 
+    APPHOST_NODE1="$(echo $APPHOST_NODE1 | tr '[:upper:]' '[:lower:]')";
+    APPHOST_NODES+=(${APPHOST_NODE1}); fi
+if [ ${APPHOST_NODE2} ] ; then 
+    APPHOST_NODE2="$(echo $APPHOST_NODE2 | tr '[:upper:]' '[:lower:]')";
+    APPHOST_NODES+=(${APPHOST_NODE2}); fi
 ###########################################################
+
 
 
 ## SYSTEM STATIC VARIABLE ##
@@ -60,6 +72,26 @@ NETDEV1="eth1"
 DB_NAME=${PROJCODE}"db"
 APP_USER=${PROJCODE}"usr"
 APP_PWD="passsw0rd"
+
+
+
+function addHost(){
+    IPSERV=$1
+    HOSTNAME=$2
+
+    HOSTLISTS=`grep "${IPSERV}" /etc/hosts`
+    echo "$1,$2"
+
+    if [ -z "${HOSTLISTS}" ]
+    then
+        echo "${IPSERV}     ${HOSTNAME}" >> /etc/hosts
+    else
+        if [ $(echo ${HOSTLISTS[@]} | grep -o " ${HOSTNAME}" | wc -w) == 0 ]
+        then
+        sed -i -e "/${IPSERV}/ s/$/ $HOSTNAME/" /etc/hosts
+        fi
+    fi
+}
 
 
 function checkNode ()
@@ -170,6 +202,17 @@ function dbPrepareUser(){
 ##################################################
 ##		START SCRIPT TASK 		## 
 ##################################################
+i=0
+for IP in "${DBIP_NODES[@]}"; do 
+    addHost $IP ${DBHOST_NODES[$i]}
+    i=$((i+1));
+done
+
+i=0
+for IP in "${APPIP_NODES[@]}"; do 
+    addHost $IP ${APPHOST_NODES[$i]}
+    i=$((i+1));
+done
 ## Task(1): check all node are runing mariadb service ##
 echo "Task(1): check all node are runing mariadb service"
 TRYCHECK=3
