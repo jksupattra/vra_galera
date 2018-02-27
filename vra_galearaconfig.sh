@@ -2,51 +2,75 @@
 
 source /etc/profile
 
-IP_NODE1="192.168.134.161"
-IP_NODE2="192.168.134.162"
-IP_NODE3="192.168.134.163"
+##################################
+##	VRA PASS PARAMETER	##
+##################################
 
-HOST_NODE1="mariaha01"
-HOST_NODE2="mariaha02"
-HOST_NODE3="mariaha03"
+PROJCODE="LMS"
+if [ -z ${PROJCODE} ]; then exit 99;
+else PROJCODE="$(echo $PROJCODE | tr '[:upper:]' '[:lower:]')"; fi
 
-APPIP_NODE1=""
-APPIP_NODE2=""
-APPIP_NODE3=""
+##########################
+##	DB HOST/IP	##
+##########################
 
-APPHOST_NODE1=""
-APPHOST_NODE2=""
-APPHOST_NODE3=""
+DBIP_NODE1="192.168.134.161"
+DBIP_NODE2="192.168.134.162"
+DBIP_NODE3="192.168.134.163"
+
+DBHOST_NODE1="mariaha01"
+DBHOST_NODE2="mariaha02"
+DBHOST_NODE3="mariaha03"
 
 ###########################################################
-if [ ${IP_NODE1} ] ; then IP_NODES+=(${IP_NODE1}); fi
-if [ ${IP_NODE2} ] ; then IP_NODES+=(${IP_NODE2}); fi
-if [ ${IP_NODE3} ] ; then IP_NODES+=(${IP_NODE3}); fi
+if [ ${DBIP_NODE1} ] ; then DBIP_NODES+=(${DBIP_NODE1}); fi
+if [ ${DBIP_NODE2} ] ; then DBIP_NODES+=(${DBIP_NODE2}); fi
+if [ ${DBIP_NODE3} ] ; then DBIP_NODES+=(${DBIP_NODE3}); fi
 
-if [ ${HOST_NODE1} ] ; then HOST_NODES+=(${HOST_NODE1}); fi
-if [ ${HOST_NODE2} ] ; then HOST_NODES+=(${HOST_NODE2}); fi
-if [ ${HOST_NODE3} ] ; then HOST_NODES+=(${HOST_NODE3}); fi
+if [ ${DBHOST_NODE1} ] ; then DBHOST_NODES+=(${DBHOST_NODE1}); fi
+if [ ${DBHOST_NODE2} ] ; then DBHOST_NODES+=(${DBHOST_NODE2}); fi
+if [ ${DBHOST_NODE3} ] ; then DBHOST_NODES+=(${DBHOST_NODE3}); fi
+###########################################################
+
+##########################
+##	APP HOST/IP	##
+##########################
+APPIP_NODE1="192.168.134.171"
+APPIP_NODE2="192.168.134.172"
+
+APPHOST_NODE1="jboss01"
+APPHOST_NODE2="jboss02"
+
+###########################################################
+if [ ${APPIP_NODE1} ] ; then APPIP_NODES+=(${APPIP_NODE1}); fi
+if [ ${APPIP_NODE2} ] ; then APPIP_NODES+=(${APPIP_NODE2}); fi
+
+if [ ${APPHOST_NODE1} ] ; then APPHOST_NODES+=(${APPHOST_NODE1}); fi
+if [ ${APPHOST_NODE2} ] ; then APPHOST_NODES+=(${APPHOST_NODE2}); fi
 ###########################################################
 
 
-
-
-
-
-
-
-
+## SYSTEM STATIC VARIABLE ##
+ROOTPWD="password"
 NETDEV0="eth0"
+NETDEV1="eth1"
+
+## DB STATIC VARIABLE ##
+DB_NAME=${PROJCODE}"db"
+APP_USER=${PROJCODE}"usr"
+APP_PWD="passsw0rd"
+
+
 
 function checkNode ()
 {
 
 NODE=0
 IPNET0=`ifconfig ${NETDEV0}| grep "inet " | awk '{print $2}'`
-echo "${IPNET0}" 
-echo "${IP_NODES[${NODE}]}" 
+#echo "${IPNET0}" 
+#echo "${DBIP_NODES[${NODE}]}" 
 
-for  IP in "${IP_NODES[@]}"; do 
+for  IP in "${DBIP_NODES[@]}"; do 
      NODE=$((NODE+1));
      if [ "${IPNET0}" == "${IP}" ];then
 	break;
@@ -54,7 +78,10 @@ for  IP in "${IP_NODES[@]}"; do
 done
 }
 
-
+checkNode
+echo "$NODE"
+echo "${DBIP_NODES[${NODE}-1]}" 
+exit;
 
 function startGalera ()
 {
@@ -128,15 +155,26 @@ function startService(){
 }
 
 function dbPrepareUser(){
+    
     mysql -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON *.* TO 'sst_user'@'localhost' IDENTIFIED BY 'dbpass' ;" 
     mysql -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON *.* TO 'dbausr'@'localhost' IDENTIFIED BY 'dbausr_123' ;"
-    mysql -uroot -pdbausr_123 -e "grant select on performance_schema.* to 'conusr'@'mariaha01' identified by 'test_connect' ;"
-    mysql -uroot -pdbausr_123 -e "grant select on performance_schema.* to 'conusr'@'mariaha02' identified by 'test_connect' ;" 
-    mysql -uroot -pdbausr_123 -e "grant select on performance_schema.* to 'conusr'@'mariaha03' identified by 'test_connect' ;" 
+    for DB_HOSTNAME in "${DBHOST_NODES[@]}"; do 
+    	#echo "mysql -uroot -pdbausr_123 -e \"grant select on performance_schema.* to 'conusr'@'$DB_HOSTNAME' identified by 'test_connect' ;"\"
+    	mysql -uroot -pdbausr_123 -e "grant select on performance_schema.* to 'conusr'@'$DB_HOSTNAME' identified by 'test_connect' ;" 
+    done
 
+    ## create app user on DB ##
+    for APP_HOSTNAME in "${APPHOST_NODES[@]}"; do 
+    	#echo "mysql -e \"GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'\""
+    	mysql -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
+    done
 }
 
-
+dbPrepareUser ## prepare config database
+exit;
+##################################################
+##		START SCRIPT TASK 		## 
+##################################################
 ## Task(1): check all node are runing mariadb service ##
 echo "Task(1): check all node are runing mariadb service"
 TRYCHECK=3
@@ -145,7 +183,7 @@ i="0";
 while [ "$i" -lt "$TRYCHECK" ]
 do
 NODERUNING=0;
-for  IP in "${IP_NODES[@]}"; do 
+for  IP in "${DBIP_NODES[@]}"; do 
      if [ "$(checkService ${IP} mysql)" ]
      then 
     	echo ">>> ${IP} service running"
@@ -157,11 +195,11 @@ for  IP in "${IP_NODES[@]}"; do
 done
 i=$((i+1));
 echo -e "\n"
-if  [ ${NODERUNING} -eq ${#IP_NODES[@]} ];then break; fi
+if  [ ${NODERUNING} -eq ${#DBIP_NODES[@]} ];then break; fi
 done
 
 
-if  [ ${NODERUNING} -eq ${#IP_NODES[@]} ]
+if  [ ${NODERUNING} -eq ${#DBIP_NODES[@]} ]
 then
     ## Task(2): prepare database to config gelara cluster  ##
     echo "Task(2): prepare database to config gelara cluster" 
@@ -173,7 +211,6 @@ else
     
 fi
 
-exit;
 
 ## Action by Node1 deploy config to another node ##
 ## Task(3): config galera on server.cnf ## 
@@ -194,6 +231,9 @@ done
 
 #3.2) config server.cnf
 
+wsrep_cluster_address="gcomm://192.168.134.161,192.168.134.162,192.168.134.163"
+wsrep_node_address='192.168.134.161'
+wsrep_node_name='mariaha01'
 
 cat >   server.cnf <<EOF
 #
