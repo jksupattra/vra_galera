@@ -2,6 +2,9 @@
 
 source /etc/profile
 
+`sed -i 's/^#PermitRootLogin.*yes\|PermitRootLogin.*no/PermitRootLogin yes/' /etc/ssh/sshd_config`
+systemctl restart sshd;
+
 ##################################
 ##	VRA PASS PARAMETER	##
 ##################################
@@ -16,11 +19,11 @@ else PROJCODE="$(echo $PROJCODE | tr '[:upper:]' '[:lower:]')"; fi
 
 DBIP_NODE1="192.168.134.181"
 DBIP_NODE2="192.168.134.182"
-#DBIP_NODE3="192.168.134.163"
+DBIP_NODE3="192.168.134.183"
 
 DBHOST_NODE1="MARIAHA01"
 DBHOST_NODE2="MARIAHA02"
-#DBHOST_NODE3="MARIAHA03"
+DBHOST_NODE3="MARIAHA03"
 
 ###########################################################
 if [ ${DBIP_NODE1} ] ; then DBIP_NODES+=(${DBIP_NODE1}); fi
@@ -72,6 +75,7 @@ NETDEV1="eth1"
 DB_NAME=${PROJCODE}"db"
 APP_USER=${PROJCODE}"usr"
 APP_PWD="passsw0rd"
+
 
 
 
@@ -131,7 +135,7 @@ function startGalera ()
 		done	
 	    else 
                 echo "      =>> Start galera_new_cluster failed"
-	        #exit 99;
+	        exit 99;
 	    fi
 	fi
      fi
@@ -188,7 +192,7 @@ function dbPrepareUser(){
     mysql -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON *.* TO 'sst_user'@'localhost' IDENTIFIED BY 'dbpass' ;" 
     mysql -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON *.* TO 'dbausr'@'localhost' IDENTIFIED BY 'dbausr_123' ;"
     for DB_HOSTNAME in "${DBHOST_NODES[@]}"; do 
-    	#echo "mysql -uroot -pdbausr_123 -e \"grant select on performance_schema.* to 'conusr'@'$DB_HOSTNAME' identified by 'test_connect' ;"\"
+    	echo "mysql -uroot -pdbausr_123 -e \"grant select on performance_schema.* to 'conusr'@'$DB_HOSTNAME' identified by 'test_connect' ;"\"
     	mysql -uroot -pdbausr_123 -e "grant select on performance_schema.* to 'conusr'@'$DB_HOSTNAME' identified by 'test_connect' ;" 
     done
 
@@ -197,6 +201,7 @@ function dbPrepareUser(){
     	#echo "mysql -e \"GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'\""
     	mysql  -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
     done
+	return 0;
 }
 
 ##################################################
@@ -213,6 +218,7 @@ for IP in "${APPIP_NODES[@]}"; do
     addHost $IP ${APPHOST_NODES[$i]}
     i=$((i+1));
 done
+
 ## Task(1): check all node are runing mariadb service ##
 echo "Task(1): check all node are runing mariadb service"
 TRYCHECK=3
@@ -242,13 +248,12 @@ then
     ## Task(2): prepare database to config gelara cluster  ##
     echo "Task(2): prepare database to config gelara cluster" 
     dbPrepareUser ## prepare config database
-    `systemctl stop mysql`
-#else
-    #echo "Error!! some node has problem,service not running after install single."
-    #exit 99;
+    sleep 30;
+else
+    echo "Error!! some node has problem,service not running after install single."
+    exit 99;
     
 fi
-
 
 ## Action by Node1 deploy config to another node ##
 ## Task(3): config galera on server.cnf ## 
@@ -388,7 +393,7 @@ echo "4.1 check all node db status already stop."
 for  IP in "${DBIP_NODES[@]}"; do 
      if [ -z "$(checkService ${IP} mysql)" ]
      then 
-    	echo ">>> ${HOST_NODES[${NODERUNING}]} service stop"
+    	echo ">>> ${IP]} service stop"
      fi
 done
 ## check all node stop
@@ -483,7 +488,7 @@ echo "Remark: wsrep_cluster_size should be --${GALERA_SIZE}--, wsrep_ready shoul
 
 ### Check MariaDB Connection for Local Node ###
 #if [ "${MARIA_STATUS}" != "MariaDB not startup" ] && [ "${PROCESS_START}" = "yes" ] && [ "${DB_HOSTNAME}" = "${HOSTNAME}" ]
-if [ "${MARIA_STATUS}" != "MariaDB not startup" ] && [ "${DB_HOSTNAME}" = "${HOSTNAME}" ]
+if [ "${MARIA_STATUS}" != "MariaDB not startup" ] 
 then
         echo ""
         echo "*********************************************************************************************"
@@ -500,7 +505,8 @@ else
 fi
 
 ### Check MariaDB Connection ans Galera Synchronization ###
-if [ "${DB_HOSTNAME}" = "${HOSTNAME}" ] && [ "${WSREP_READY}" = "ON" ] && [ "${WSREP_CLS_SIZE}" = ${GALERA_SIZE} ] && [ "${WSREP_STATE}" = "Synced" ]
+#if [ "${DB_HOSTNAME}" = "${HOSTNAME}" ] && [ "${WSREP_READY}" = "ON" ] && [ "${WSREP_CLS_SIZE}" = ${GALERA_SIZE} ] && [ "${WSREP_STATE}" = "Synced" ]
+if [ "${WSREP_READY}" = "ON" ] && [ "${WSREP_CLS_SIZE}" = ${GALERA_SIZE} ] && [ "${WSREP_STATE}" = "Synced" ]
 then
         echo ""
         echo "*****************************************************************************"
