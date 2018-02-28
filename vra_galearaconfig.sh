@@ -14,13 +14,13 @@ else PROJCODE="$(echo $PROJCODE | tr '[:upper:]' '[:lower:]')"; fi
 ##	DB HOST/IP	##
 ##########################
 
-DBIP_NODE1="192.168.134.161"
-DBIP_NODE2="192.168.134.162"
-DBIP_NODE3="192.168.134.163"
+DBIP_NODE1="192.168.134.181"
+DBIP_NODE2="192.168.134.182"
+#DBIP_NODE3="192.168.134.163"
 
 DBHOST_NODE1="MARIAHA01"
 DBHOST_NODE2="MARIAHA02"
-DBHOST_NODE3="MARIAHA03"
+#DBHOST_NODE3="MARIAHA03"
 
 ###########################################################
 if [ ${DBIP_NODE1} ] ; then DBIP_NODES+=(${DBIP_NODE1}); fi
@@ -195,7 +195,7 @@ function dbPrepareUser(){
     ## create app user on DB ##
     for APP_HOSTNAME in "${APPHOST_NODES[@]}"; do 
     	#echo "mysql -e \"GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'\""
-    	mysql  -uroot -pdbausr_123 "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
+    	mysql  -uroot -pdbausr_123 -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$APP_USER'@'$APP_HOSTNAME' IDENTIFIED BY '$APP_PWD'"
     done
 }
 
@@ -228,7 +228,7 @@ for  IP in "${DBIP_NODES[@]}"; do
         NODERUNING=$((NODERUNING+1));
      else
     	echo ">>> ${IP} service dead"
-	#startService ${IP} mysql
+	startService ${IP} mysql
      fi
 done
 i=$((i+1));
@@ -373,7 +373,11 @@ innodb_buffer_pool_instances=8
 thread_cache_size=4
 EOF
 
-if  [ ${NODE} != "1" ] ; then echo -e "Waiting for Node1 start cluster ....." ; fi
+if  [ ${NODE} != "1" ] ; 
+then 
+    echo -e "Waiting for Node1 start cluster ....." ; 
+    exit 0;
+fi
 
 ## Action by Node1 Stop/Start all node ##
 ## Task(4): Start galera on Node1 ## 
